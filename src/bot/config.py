@@ -22,14 +22,6 @@ class BotConfig(BaseSettings):
     model_config = assign_config_dict(prefix="BOT_")
 
 
-class ShopConfig(BaseSettings):
-    ID: int
-    PROVIDER_TOKEN: SecretStr
-    API_KEY: SecretStr
-
-    model_config = assign_config_dict(prefix="SHOP_")
-
-
 class GPTConfig(BaseSettings):
     OPENAI_API_KEY: SecretStr
     ASSISTANT_ID: SecretStr
@@ -45,6 +37,19 @@ class RedisConfig(BaseSettings):
 
     model_config = assign_config_dict(prefix="REDIS_")
 
+
+class WeatherConfig(BaseSettings):
+    API_KEY: SecretStr | None = None
+    BASE_URL: str = "https://api.openweathermap.org/data/2.5"
+
+    model_config = assign_config_dict(prefix="WEATHER_")
+
+
+class MapsConfig(BaseSettings):
+    API_KEY: SecretStr | None = None
+    BASE_URL: str = "https://maps.googleapis.com/maps/api/place"
+
+    model_config = assign_config_dict(prefix="MAPS_")
 
 class DBConfig(BaseSettings):
     USER: str
@@ -67,11 +72,11 @@ class DBConfig(BaseSettings):
 
 class Settings(BaseSettings):
     bot: BotConfig = Field(default_factory=BotConfig)
-    shop: ShopConfig = Field(default_factory=ShopConfig)
     gpt: GPTConfig = Field(default_factory=GPTConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
     db: DBConfig = Field(default_factory=DBConfig)
-
+    weather: WeatherConfig = Field(default_factory=WeatherConfig)
+    maps: MapsConfig = Field(default_factory=MapsConfig)
     model_config = assign_config_dict()
 
 

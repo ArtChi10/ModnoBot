@@ -16,35 +16,15 @@ class AIState(StatesGroup):
     WAITING_PLANT_PHOTO = State()
     WAITING_CITY = State()
 
-class PaidEntity(StrEnum):
-    ONE_MONTH_SUBSCRIPTION = auto()
-    ONE_YEAR_SUBSCRIPTION = auto()
-    ONE_YEAR_GIFT_SUBSCRIPTION = auto()
-    PICTURES_COUNTER_REFRESH = auto()
 
-
-class PaymentType(StrEnum):
-    RECURRENT = auto()
-    ONE_TIME = auto()
-
-
-class MenuButtons(StrEnum):
-    YES = auto()
-    NO = auto()
-
-
-class SubscriptionAction(StrEnum):
-    CANCEL_SUB_DIALOG = auto()
-    CANCEL_SUB = auto()
-    GIFT_SUB = auto()
-
-
-class SubscriptionStatus(StrEnum):
-    INACTIVE = auto()
-    ACTIVE = auto()
-    CREATED = auto()
-    RENEWED = auto()
-    PROLONGED = auto()
+class StyleAssistantState(StatesGroup):
+    ONBOARDING_START = State()
+    ASK_LOCATION = State()
+    ASK_CITY_MANUAL = State()
+    ASK_EVENT = State()
+    ASK_STYLE = State()
+    ASK_PHOTO_OPTIONAL = State()
+    ASK_SHOPS = State()
 
 
 class Stage(StrEnum):

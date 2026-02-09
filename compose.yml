@@ -4,10 +4,29 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ModnoBot
     ports:
       - "127.0.0.1:5444:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d ModnoBot" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
+  redis:
+        image: redis:7-alpine
+        command: [ "redis-server", "--requirepass", "redis-password" ]
+        ports:
+          - "127.0.0.1:6380:6379"
+        volumes:
+          - redis_data:/data
+        healthcheck:
+          test: [ "CMD", "redis-cli", "-a", "redis-password", "ping" ]
+          interval: 5s
+          timeout: 5s
+          retries: 20
 volumes:
   pg_data:
+  redis_data:

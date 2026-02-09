@@ -1,85 +1,45 @@
-from aiogram.types import (
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    KeyboardButtonRequestUsers,
-    ReplyKeyboardMarkup,
-)
+from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.internal.callbacks import PaidEntityCallbackFactory, SubscriptionActionsCallbackFactory
-from bot.internal.enums import PaidEntity, SubscriptionAction
 
-
-def subscription_kb(prolong: bool = False) -> InlineKeyboardMarkup:
+def start_selection_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    month_text = "Продлить на месяц" if prolong else "Месяц"
-    year_text = "Продлить на год" if prolong else "Годовая подписка"
-    for text, callback in [
-        (
-            month_text,
-            PaidEntityCallbackFactory(entity=PaidEntity.ONE_MONTH_SUBSCRIPTION).pack(),
-        ),
-        (
-            year_text,
-            PaidEntityCallbackFactory(entity=PaidEntity.ONE_YEAR_SUBSCRIPTION).pack(),
-        ),
-    ]:
-        kb.button(text=text, callback_data=callback)
-    kb.button(
-        text="Подарить годовую подписку",
-        callback_data=SubscriptionActionsCallbackFactory(action=SubscriptionAction.GIFT_SUB).pack(),
-    )
+    kb.button(text="Начать подбор", callback_data="style:start")
+    return kb.as_markup()
+
+
+def event_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Повседневно", callback_data="style:event:повседневно")
+    kb.button(text="Мероприятие", callback_data="style:event:мероприятие")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def payment_link_kb(value: int, url: str) -> InlineKeyboardMarkup:
+def style_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text=f"Оплатить {value}₽", url=url)
-    return kb.as_markup()
-
-
-def cancel_autopayment_kb() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(
-        text="Отмена подписки",
-        callback_data=SubscriptionActionsCallbackFactory(action=SubscriptionAction.CANCEL_SUB_DIALOG).pack(),
-    )
-    kb.button(
-        text="Подарить годовую подписку",
-        callback_data=SubscriptionActionsCallbackFactory(action=SubscriptionAction.GIFT_SUB).pack(),
-    )
+    kb.button(text="Casual", callback_data="style:style:casual")
+    kb.button(text="Classic", callback_data="style:style:classic")
+    kb.button(text="Sport", callback_data="style:style:sport")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def autopayment_cancelled_kb() -> InlineKeyboardMarkup:
+def photo_optional_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(
-        text="Отменить автопродление",
-        callback_data=SubscriptionActionsCallbackFactory(action=SubscriptionAction.CANCEL_SUB).pack(),
-    )
+    kb.button(text="Пропустить фото", callback_data="style:skip_photo")
     return kb.as_markup()
 
 
-def refresh_pictures_kb() -> InlineKeyboardMarkup:
+def shops_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(
-        text="Купить доп. пакет",
-        callback_data=PaidEntityCallbackFactory(entity=PaidEntity.PICTURES_COUNTER_REFRESH).pack(),
-    )
+    kb.button(text="Да, показать магазины", callback_data="style:shops:yes")
+    kb.button(text="Нет, спасибо", callback_data="style:shops:no")
+    kb.adjust(1)
     return kb.as_markup()
 
-
-share_contact_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(
-                text="Выберите контакт",
-                request_users=KeyboardButtonRequestUsers(request_id=1),
-            )
-        ]
-    ],
-    resize_keyboard=True,
-    one_time_keyboard=True,
-)
+location_request_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📍 Отправить геолокацию", request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )

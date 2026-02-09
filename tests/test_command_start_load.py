@@ -4,80 +4,48 @@ from types import SimpleNamespace
 import pytest
 
 from bot.handlers import command as command_module
-from bot.internal.enums import AIState
+from bot.internal.enums import StyleAssistantState
 
 
 class FakeMessage:
-    def __init__(self) -> None:
+    def __init__(self, user_id: int) -> None:
         self.answers: list[str] = []
-        self.photos: list[str] = []
+        self.from_user = SimpleNamespace(id=user_id)
 
     async def answer(self, text: str, *args, **kwargs) -> None:
         self.answers.append(text)
-
-    async def answer_photo(self, photo, *args, **kwargs) -> None:
-        self.photos.append(str(photo))
 
 
 class FakeState:
     def __init__(self) -> None:
         self.state = None
 
-    async def get_state(self):
-        return self.state
-
     async def set_state(self, state) -> None:
         self.state = state
 
 
 @pytest.mark.asyncio
-async def test_command_start_under_load(monkeypatch):
-    """
-    🔥 Нагрузочный тест command_handler:
-    - 100 последовательных запусков
-    - 50 параллельных пользователей
-    """
-
-    monkeypatch.setattr(
-        command_module,
-        "WELCOME_BY_SOURCE",
-        {"default": {"photo": None, "text": None}},
-    )
-
-    async def run_once():
-        message = FakeMessage()
-        state = FakeState()
-        user = SimpleNamespace(
-            source="default",
-            fullname="Test User",
-            is_context_added=True,
-        )
-        command = SimpleNamespace(command="start")
+async def test_command_start_under_load():
+    async def run_once(user_id: int):
+        message = FakeMessage(user_id)
 
         await command_module.command_handler(
             message=message,
-            command=command,
-            user=user,
-            settings=SimpleNamespace(),
+            command=SimpleNamespace(command="start"),
+            user=SimpleNamespace(),
+            settings=SimpleNamespace(bot=SimpleNamespace(ADMINS=[])),
             state=state,
             db_session=SimpleNamespace(),
         )
 
         return state.state, message.answers
-
-    # --- 100 последовательных запусков ---
-    for _ in range(100):
-        state, answers = await run_once()
-        assert state == AIState.IN_AI_DIALOG
+    for i in range(100):
+        state, answers = await run_once(i)
+        assert state == StyleAssistantState.ONBOARDING_START
         assert answers
-        assert "Мы уже знакомы" in answers[0]
-
-    # --- 50 параллельных запусков ---
-    results = await asyncio.gather(
-        *[run_once() for _ in range(50)]
-    )
-
+        assert "Style Assistant Bot" in answers[0]
+    results = await asyncio.gather(*[run_once(i) for i in range(50)])
     for state, answers in results:
-        assert state == AIState.IN_AI_DIALOG
+        assert state == StyleAssistantState.ONBOARDING_START
         assert answers
-        assert "Мы уже знакомы" in answers[0]
+        assert "Style Assistant Bot" in answers[0]

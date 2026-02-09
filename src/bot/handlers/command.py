@@ -1,41 +1,35 @@
-from asyncio import sleep
-from datetime import datetime, timedelta
-from logging import getLogger
-from random import randint
-
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
-from aiogram.types import FSInputFile, Message
-from aiogram.utils.chat_action import ChatActionSender
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
-from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+
 from bot.config import Settings
-from bot.controllers.statistics import (
-    build_stats_snapshot,
-    list_stat_log_paths,
-    iter_stat_events,
-    build_stat_message,
+from bot.controllers.style_assistant import (
+    admin_metrics,
+    build_recommendations,
+    find_nearby_shops,
+    generate_weather,
+    save_photo,
+    save_preference,
+    save_recommendation,
+    upsert_location,
+    user_recommendation_history,
 )
-from bot.controllers.base import imitate_typing
-from bot.controllers.user import ask_next_question, get_user_counter
-from bot.internal.enums import AIState, Form
-from bot.internal.keyboards import cancel_autopayment_kb, subscription_kb
-from bot.internal.lexicon import replies, support_text, WELCOME_BY_SOURCE
-from database.models import User, UserCounters
-from sqlalchemy import select
-from bot.onboarding.start_variants import ONBOARDING_VARIANTS
-from dateutil.relativedelta import relativedelta
-
-
-
-
-
+from bot.internal.enums import StyleAssistantState
+from bot.internal.keyboards import (
+    event_kb,
+    location_request_kb,
+    photo_optional_kb,
+    shops_kb,
+    start_selection_kb,
+    style_kb,
+)
+from database.models import User
 router = Router()
-logger = getLogger(__name__)
 
 
-@router.message(Command("start", "support", "share"))
+@router.message(Command("start", "help", "history", "admin_logs", "admin_catalog"))
 async def command_handler(
     message: Message,
     command: CommandObject,
@@ -46,230 +40,173 @@ async def command_handler(
 ) -> None:
     match command.command:
         case "start":
-            logger.info(build_stat_message("Start_bot", user.tg_id))
-            current_state = await state.get_state()
-
-            if current_state in {
-                AIState.WAITING_PLANT_PHOTO,
-                AIState.WAITING_CITY,
-                Form.space,
-                Form.geography,
-                Form.request,
-            }:
-                start_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📸 Отправить фото", callback_data="onb:send_photo")],
-                    [InlineKeyboardButton(text="🚫 Нет растения под рукой? Попробуй Демо", callback_data="onb:demo")],
-                ])
-                await message.answer(
-                    "Мы уже начали знакомство! 👀\n"
-                    "Продолжай — я жду твой ответ или фото.",
-                    reply_markup=start_keyboard,
-                )
+            await state.set_state(StyleAssistantState.ONBOARDING_START)
+            await message.answer(
+                "Привет! Я Style Assistant Bot 👗\n"
+                "Подберу образ с учетом события, стиля и погоды.",
+                reply_markup=start_selection_kb(),
+            )
+        case "help":
+            await message.answer(
+                "Команды:\n"
+                "/start — начать подбор\n"
+                "/history — история последних подборок\n"
+                "/admin_logs — метрики (для админа)\n"
+                "/admin_catalog — управление каталогом (заглушка)"
+            )
+        case "history":
+            history = await user_recommendation_history(db_session, user)
+            if not history:
+                await message.answer("История подборок пока пуста. Нажми /start")
                 return
-            source = user.source or "default"
-            cfg = WELCOME_BY_SOURCE.get(source, WELCOME_BY_SOURCE["default"])
-
-            if cfg.get("photo"):
-                await message.answer_photo(FSInputFile(cfg["photo"]))
-
-            if cfg.get("text"):
-                await message.answer(cfg["text"].format(fullname=user.fullname))
-
-            if user.is_context_added:
-                await state.set_state(AIState.IN_AI_DIALOG)
-                await message.answer(
-                    "Мы уже знакомы 🌿\n"
-                    "Просто задай вопрос или пришли фото растения."
-                )
+            lines = ["Ваши последние подборки:"]
+            for item in history:
+                lines.append(f"• {item.created_at:%d.%m %H:%M} — {item.weather_summary}")
+            await message.answer("\n".join(lines))
+        case "admin_logs":
+            if message.from_user.id not in settings.bot.ADMINS:
+                await message.answer("❌ Нет доступа")
                 return
+            metrics = await admin_metrics(db_session)
+            await message.answer(
+                "📊 Метрики:\n"
+                f"Пользователей: {metrics['users']}\n"
+                f"Подборок: {metrics['recommendations']}\n"
+                f"Фото: {metrics['photos']}"
 
-            variant = "onboarding_3"  # Change onboarding
-            await ONBOARDING_VARIANTS[variant](
-                message=message,
-                state=state,
-                user=user,
-                db_session=db_session,
-                settings=settings,
-                replies=replies,
-                ask_next_question=ask_next_question,
-                imitate_typing=imitate_typing,
-                Form=Form,
-                AIState=AIState,
             )
-            '''start_file_path = "src/bot/data/start.png"
-            await message.answer_photo(
-              FSInputFile(path=start_file_path) )
-            async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
-                if not user.is_context_added:
-                    await sleep(1)
-                    await message.answer(replies[0].format(fullname=user.fullname))
-                    random_index = randint(0, 9)
-                    await state.update_data(question_index=random_index)
-                    await imitate_typing()
-                    field, question = await ask_next_question(user, random_index)
-                    await state.set_state(getattr(Form, field))
-                    await message.answer(question)
-                else:
-                    await sleep(1)
-                    await message.answer(replies[1].format(fullname=user.fullname))
-                    user.is_context_added = True
-                    db_session.add(user)
-                    await db_session.flush()
-                    await imitate_typing()
-                    await state.set_state(AIState.IN_AI_DIALOG) '''
-
-        case "support":
-            picture = FSInputFile(path="src/bot/data/with_book.png")
-            if user.is_subscribed and user.expired_at and user.expired_at > datetime.now(user.expired_at.tzinfo):
-                current_date = datetime.now(user.expired_at.tzinfo)
-                days = (user.expired_at.date() - current_date.date()).days
-                user_counter: UserCounters = await get_user_counter(user.tg_id, db_session)
-                photos = settings.bot.PICTURES_THRESHOLD - user_counter.image_count
-                await message.answer_photo(
-                    picture,
-                    support_text["subscribed"].format(days=days, photos=photos),
-                    reply_markup=cancel_autopayment_kb(),
-                )
-            else:
-                await message.answer_photo(
-                    picture,
-                    support_text["unsubscribed"].format(actions=(settings.bot.ACTIONS_THRESHOLD - user.action_count)),
-                    reply_markup=subscription_kb(),
-                )
-        case "share":
-            await message.answer("Выберите, кому хотите подарить подписку", reply_markup=contact_kb)
+        case "admin_catalog":
+            if message.from_user.id not in settings.bot.ADMINS:
+                await message.answer("❌ Нет доступа")
+                return
+            await message.answer("Управление каталогом пока в режиме заглушки.")
 
 
-@router.message(Command("static"))
-async def stats_handler(
-    message: Message,
-    settings: Settings,
-    db_session: AsyncSession,
-) -> None:
-    if message.from_user.id not in settings.bot.ADMINS:
-        await message.answer("❌ У вас нет прав на просмотр статистики")
-        return
-
-    now = datetime.now().astimezone()
-    current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    events = iter_stat_events(list_stat_log_paths())
-    periods = [
-        ("За все время", None, now),
-        ("За последние 2 месяца", now - relativedelta(months=2), now),
-        ("За текущий месяц", current_month_start, now),
-        ("За последнюю неделю", now - timedelta(days=7), now),
-    ]
-
-    sections: list[str] = ["📊 Статистика"]
-    for title, start_at, end_at in periods:
-        stats = build_stats_snapshot(events, start_at, end_at)
-        sections.append(
-            "\n".join(
-                [
-                    "",
-                    f"{title}:",
-                    f"- Start_bot: {stats.start_bot}",
-                    f"- Photo_upload (первое фото): {stats.photo_upload}",
-                    f"- Paywall_view: {stats.paywall_view}",
-                    f"- Payment_success: {stats.payment_success}",
-                    f"- Diagnosis_result: {stats.diagnosis_result}",
-                ]
-            )
-        )
-
-    await message.answer("\n".join(sections))
-
-
-@router.message(Command("broadcast"))
-async def broadcast_handler(
-    message: Message,
-    command: CommandObject,
-    settings: Settings,
-    db_session: AsyncSession,
-) -> None:
-    if message.from_user.id not in settings.bot.ADMINS:
-        await message.answer("❌ У вас нет прав на рассылку")
-        return
-
-    text = command.args
-    if not text:
-        await message.answer(
-            "Использование:\n"
-            "<code>/broadcast текст сообщения</code>"
-        )
-        return
-
-    result = await db_session.execute(
-        select(User.tg_id)
+@router.callback_query(F.data == "style:start")
+async def start_selection(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(StyleAssistantState.ASK_LOCATION)
+    await callback.message.answer(
+        "Отправь геолокацию, чтобы проверить погоду.",
+        reply_markup=location_request_kb,
     )
-    user_ids: list[int] = result.scalars().all()
+    await callback.answer()
 
-    if not user_ids:
-        await message.answer("Пользователи не найдены")
-        return
+@router.callback_query(StyleAssistantState.ASK_LOCATION, F.data == "style:manual_city")
+async def choose_manual_city(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(StyleAssistantState.ASK_CITY_MANUAL)
+    await callback.message.answer(
+        "Введите город текстом (например: Москва).",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await callback.answer()
 
-    sent = 0
-    failed = 0
 
-    for user_id in user_ids:
-        try:
-            await message.bot.send_message(user_id, text)
-            sent += 1
-            await sleep(0.05)
-        except Exception:
-            failed += 1
+@router.message(StyleAssistantState.ASK_LOCATION, F.location)
+async def location_received(message: Message, state: FSMContext, user: User, db_session: AsyncSession) -> None:
+    lat = message.location.latitude
+    lon = message.location.longitude
+    await upsert_location(
+        db_session,
+        user,
+        city=None,
+        lat=lat,
+        lon=lon,
+        allow_location=True,
+    )
+    await state.update_data(lat=lat, lon=lon, city=None)
+    await state.set_state(StyleAssistantState.ASK_EVENT)
+    await message.answer("Куда собираешься?", reply_markup=event_kb())
 
+@router.message(StyleAssistantState.ASK_LOCATION)
+async def location_not_received(message: Message, state: FSMContext) -> None:
+    await state.set_state(StyleAssistantState.ASK_CITY_MANUAL)
     await message.answer(
-        "📢 <b>Рассылка завершена</b>\n\n"
-        f"👥 Всего пользователей: {len(user_ids)}\n"
-        f"✅ Отправлено: {sent}\n"
-        f"❌ Ошибок: {failed}"
+        "Если не хотите отправлять геолокацию, введите город вручную.",
+        reply_markup=ReplyKeyboardRemove(),
     )
 
-@router.message(Command("broadcast_photo"))
-async def broadcast_photo_handler(
+@router.message(StyleAssistantState.ASK_CITY_MANUAL)
+async def city_manual(message: Message, state: FSMContext, user: User, db_session: AsyncSession) -> None:
+    city = (message.text or "").strip()
+    if not city:
+        await message.answer("Введите название города текстом.")
+        return
+    await upsert_location(db_session, user, city=city, lat=None, lon=None, allow_location=False)
+    await state.update_data(city=city, lat=None, lon=None)
+    await state.set_state(StyleAssistantState.ASK_EVENT)
+    await message.answer("Куда собираешься?", reply_markup=event_kb())
+
+
+@router.callback_query(StyleAssistantState.ASK_EVENT, F.data.startswith("style:event:"))
+async def event_chosen(callback: CallbackQuery, state: FSMContext) -> None:
+    event_type = callback.data.split(":", maxsplit=2)[2]
+    await state.update_data(event_type=event_type)
+    await state.set_state(StyleAssistantState.ASK_STYLE)
+    await callback.message.answer("Выбери стиль", reply_markup=style_kb())
+    await callback.answer()
+
+@router.callback_query(StyleAssistantState.ASK_STYLE, F.data.startswith("style:style:"))
+async def style_chosen(callback: CallbackQuery, state: FSMContext) -> None:
+    style = callback.data.split(":", maxsplit=2)[2]
+    await state.update_data(style=style)
+    await state.set_state(StyleAssistantState.ASK_PHOTO_OPTIONAL)
+    await callback.message.answer("Пришли фото (опционально) или пропусти.", reply_markup=photo_optional_kb())
+    await callback.answer()
+
+@router.callback_query(StyleAssistantState.ASK_PHOTO_OPTIONAL, F.data == "style:skip_photo")
+async def skip_photo(callback: CallbackQuery, state: FSMContext, user: User, db_session: AsyncSession) -> None:
+    await callback.answer()
+    await _build_and_send_recommendations(callback.message, state, user, db_session)
+
+@router.message(StyleAssistantState.ASK_PHOTO_OPTIONAL, F.photo)
+async def photo_received(message: Message, state: FSMContext, user: User, db_session: AsyncSession) -> None:
+    await save_photo(db_session, user, message.photo[-1].file_id)
+    await message.answer("Фото сохранено. Анализ фото пока в режиме заглушки.")
+    await _build_and_send_recommendations(message, state, user, db_session)
+
+async def _build_and_send_recommendations(
     message: Message,
-    settings: Settings,
+    state: FSMContext,
+    user: User,
     db_session: AsyncSession,
 ) -> None:
-    if message.from_user.id not in settings.bot.ADMINS:
-        await message.answer("❌ У вас нет прав на рассылку")
-        return
+    state_data = await state.get_data()
+    event_type = state_data.get("event_type", "повседневно")
+    style = state_data.get("style", "casual")
+    city = state_data.get("city")
+    lat = state_data.get("lat")
+    lon = state_data.get("lon")
 
-    if not message.reply_to_message or not message.reply_to_message.photo:
-        await message.answer(
-            "Использование:\n"
-            "Ответьте командой <code>/broadcast_photo</code> "
-            "на сообщение с картинкой"
-        )
-        return
+    weather = await generate_weather(city=city, lat=lat, lon=lon)
+    pref = await save_preference(db_session, user, event_type=event_type, style=style)
+    looks = build_recommendations(event_type, style, weather)
 
-    photo = message.reply_to_message.photo[-1]
-    caption = message.reply_to_message.caption or ""
-
-    result = await db_session.execute(
-        select(User.tg_id)
+    weather_warning = f"\n⚠️ {weather.warning}" if weather.warning else ""
+    text = (
+            "Вот 3 варианта образа:\n"
+            + "\n".join(looks)
+            + f"\n\nПогода: {weather.summary}{weather_warning}"
     )
-    user_ids = result.scalars().all()
+    await save_recommendation(db_session, user, pref, weather.summary, text)
+    await state.set_state(StyleAssistantState.ASK_SHOPS)
+    await message.answer(text)
+    await message.answer("Показать магазины рядом?", reply_markup=shops_kb())
 
-    sent = 0
-    failed = 0
 
-    for user_id in user_ids:
-        try:
-            await message.bot.send_photo(
-                chat_id=user_id,
-                photo=photo.file_id,
-                caption=caption,
-            )
-            sent += 1
-            await sleep(0.05)
-        except Exception:
-            failed += 1
+@router.callback_query(StyleAssistantState.ASK_SHOPS, F.data == "style:shops:yes")
+async def shops_yes(callback: CallbackQuery, state: FSMContext, user: User, db_session: AsyncSession) -> None:
+    history = await user_recommendation_history(db_session, user, limit=1)
+    city = None
+    if history:
+        city = "рядом"
+    shops = find_nearby_shops(city)
+    await callback.message.answer("Магазины рядом:\n" + "\n".join(f"• {item}" for item in shops))
+    await state.clear()
+    await callback.answer()
 
-    await message.answer(
-        "📢 <b>Рассылка с картинкой завершена</b>\n\n"
-        f"👥 Всего: {len(user_ids)}\n"
-        f"✅ Отправлено: {sent}\n"
-        f"❌ Ошибок: {failed}"
-    )
+
+@router.callback_query(StyleAssistantState.ASK_SHOPS, F.data == "style:shops:no")
+async def shops_no(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.answer("Готово! Возвращайся за новым подбором через /start")
+    await callback.answer()
