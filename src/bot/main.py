@@ -45,6 +45,7 @@ async def main() -> None:
     storage = RedisStorage(redis_client)
     dispatcher = Dispatcher(storage=storage, settings=settings)
     db = get_db(settings)
+    await db.init_models()
     db_session_middleware = DBSessionMiddleware(db)
     dispatcher.update.outer_middleware(UpdatesDumperMiddleware())
     dispatcher.startup.register(on_startup)

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
+from database.models import Base
 
 class DatabaseConnector:
     def __init__(
@@ -31,6 +31,10 @@ class DatabaseConnector:
 
     async def dispose(self) -> None:
         await self.engine.dispose()
+
+    async def init_models(self) -> None:
+        async with self.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
 
     async def session_getter(self) -> AsyncGenerator[AsyncSession, None]:
         async with self.session_factory() as session:
