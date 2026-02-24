@@ -38,6 +38,11 @@ def shops_kb() -> InlineKeyboardMarkup:
     kb.adjust(1)
     return kb.as_markup()
 
+def manual_city_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Ввести город вручную", callback_data="style:manual_city")
+    return kb.as_markup()
+
 location_request_kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="📍 Отправить геолокацию", request_location=True)]],
         resize_keyboard=True,

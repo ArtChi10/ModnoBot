@@ -24,9 +24,28 @@ from bot.internal.keyboards import (
     shops_kb,
     start_selection_kb,
     style_kb,
+    manual_city_kb,
 )
 from database.models import User
 router = Router()
+
+HELP_TEXT = (
+    "Команды:\n"
+    "/start — начать подбор\n"
+    "/history — история последних подборок\n"
+    "/admin_logs — метрики (для админа)\n"
+    "/admin_catalog — управление каталогом (заглушка)"
+)
+
+
+def _is_admin(message: Message, settings: Settings) -> bool:
+    return message.from_user.id in settings.bot.ADMINS
+
+
+async def _prompt_for_event(message: Message, state: FSMContext) -> None:
+    await state.set_state(StyleAssistantState.ASK_EVENT)
+    await message.answer("Куда собираешься?", reply_markup=event_kb())
+
 
 
 @router.message(Command("start", "help", "history", "admin_logs", "admin_catalog"))
@@ -47,13 +66,7 @@ async def command_handler(
                 reply_markup=start_selection_kb(),
             )
         case "help":
-            await message.answer(
-                "Команды:\n"
-                "/start — начать подбор\n"
-                "/history — история последних подборок\n"
-                "/admin_logs — метрики (для админа)\n"
-                "/admin_catalog — управление каталогом (заглушка)"
-            )
+            await message.answer(HELP_TEXT)
         case "history":
             history = await user_recommendation_history(db_session, user)
             if not history:
@@ -64,7 +77,7 @@ async def command_handler(
                 lines.append(f"• {item.created_at:%d.%m %H:%M} — {item.weather_summary}")
             await message.answer("\n".join(lines))
         case "admin_logs":
-            if message.from_user.id not in settings.bot.ADMINS:
+            if not _is_admin(message, settings):
                 await message.answer("❌ Нет доступа")
                 return
             metrics = await admin_metrics(db_session)
@@ -88,6 +101,10 @@ async def start_selection(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(
         "Отправь геолокацию, чтобы проверить погоду.",
         reply_markup=location_request_kb,
+    )
+    await callback.message.answer(
+        "Или выбери ручной ввод города:",
+        reply_markup=manual_city_kb(),
     )
     await callback.answer()
 
@@ -114,8 +131,7 @@ async def location_received(message: Message, state: FSMContext, user: User, db_
         allow_location=True,
     )
     await state.update_data(lat=lat, lon=lon, city=None)
-    await state.set_state(StyleAssistantState.ASK_EVENT)
-    await message.answer("Куда собираешься?", reply_markup=event_kb())
+    await _prompt_for_event(message, state)
 
 @router.message(StyleAssistantState.ASK_LOCATION)
 async def location_not_received(message: Message, state: FSMContext) -> None:
@@ -133,8 +149,8 @@ async def city_manual(message: Message, state: FSMContext, user: User, db_sessio
         return
     await upsert_location(db_session, user, city=city, lat=None, lon=None, allow_location=False)
     await state.update_data(city=city, lat=None, lon=None)
-    await state.set_state(StyleAssistantState.ASK_EVENT)
-    await message.answer("Куда собираешься?", reply_markup=event_kb())
+    await _prompt_for_event(message, state)
+
 
 
 @router.callback_query(StyleAssistantState.ASK_EVENT, F.data.startswith("style:event:"))
